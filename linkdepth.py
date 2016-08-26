@@ -18,6 +18,9 @@ from scrapy.http.response import Response
 from scrapy.linkextractors import LinkExtractor
 
 
+HOUR = 60 * 60
+
+
 def get_netloc(url):
     return urlsplit(url).netloc
 
@@ -63,7 +66,7 @@ class DepthSpider(scrapy.Spider):
 
     PRIO_INIT = 10000
     PRIO_DOMAIN = 1000
-    PRIO_PAGE = 3
+    PRIO_PAGE = 10
 
     bfs = False
     crawl_id = None
@@ -230,7 +233,7 @@ if __name__ == '__main__':
     parser.add_argument("result", help="Result file, e.g. depths.jl")
     parser.add_argument("--bfs", action="store_true",
                         help="Run a BFS crawl instead of using autopager")
-    parser.add_argument("--limit", type=int, default=10000,
+    parser.add_argument("--limit", type=int, default=1000000,
                         help="Max requests per netloc (defualt: %(default)s)")
     args = parser.parse_args()
 
@@ -256,7 +259,7 @@ if __name__ == '__main__':
         },
         SCHEDULER_PRIORITY_QUEUE='queues.RoundRobinPriorityQueue',
         SCHEDULER_DISK_QUEUE='queues.DiskQueue',
-        CLOSESPIDER_TIMEOUT=60*60*20,
+        CLOSESPIDER_TIMEOUT=HOUR * 18,
     ))
     cp.crawl(DepthSpider, urls=args.urls, bfs=args.bfs, crawl_id=crawl_id)
     cp.start()
