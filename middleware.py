@@ -41,3 +41,24 @@ class MaxRequestsMiddleware:
         if self.requests_num[netloc] >= self.max_requests:
             self.stats.inc_value("MaxRequestsMiddleware/dropped")
             raise IgnoreRequest()
+
+
+class DropRequestMiddleware:
+    """
+    Downloader middleware to drop all requests to a domain
+    once a certain condition is met. It calls
+    ``spider.should_drop(request)`` method to check if a request
+    should be downloaded or dropped; spider must implement this method.
+    """
+    def __init__(self, stats):
+        self.stats = stats
+
+    @classmethod
+    def from_crawler(cls, crawler):
+        return cls(stats=crawler.stats)
+
+    def process_request(self, request, spider):
+        if spider.should_drop(request):
+            self.stats.inc_value("DropRequestMiddleware/dropped")
+            raise IgnoreRequest()
+

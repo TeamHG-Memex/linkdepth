@@ -205,8 +205,17 @@ class DepthSpider(scrapy.Spider):
             '_referer': request.headers.get('Referer', '').decode('latin1'),
             '_left_for_netloc': len(to_find),
         }
-        if not len(to_find):
+        if not to_find:
             self.logger.info("All pages for %s are found!" % get_netloc(url))
+
+    def should_drop(self, request: scrapy.Request):
+        netloc = request.meta.get('netloc')
+        if not netloc or self._urls_to_check[netloc]:
+            return
+
+        if not self._urls_to_find[netloc]:
+            # stop crawling a domain once all URLs are found
+            return True
 
 
 if __name__ == '__main__':
@@ -243,6 +252,7 @@ if __name__ == '__main__':
         MAX_REQUESTS_PER_NETLOC=args.limit,
         DOWNLOADER_MIDDLEWARES={
             'middleware.MaxRequestsMiddleware': 650,  # after redirects
+            'middleware.DropRequestMiddleware': 651,
         },
         SCHEDULER_PRIORITY_QUEUE='queues.RoundRobinPriorityQueue',
         SCHEDULER_DISK_QUEUE='queues.DiskQueue',
