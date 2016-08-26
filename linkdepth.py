@@ -144,8 +144,9 @@ class DepthSpider(scrapy.Spider):
             )
 
     def parse_domain(self, response: Response):
-        yield from self._check_if_ground_truth(response, response.url,
-                                               visited=True)
+        info = self._request_info(response, response.url, visited=True)
+        yield from self._handle_ground_truth(info)
+
         netloc = response.meta['netloc']
         if get_netloc(response.url) != netloc:
             self.logger.debug(
@@ -160,16 +161,15 @@ class DepthSpider(scrapy.Spider):
 
         next_depth = response.meta['request_depth'] + 1
         for url, prio in self._get_links(response):
-            yield from self._check_if_ground_truth(response, url, visited=False)
-
-            if get_netloc(url) != netloc:
-                continue
-
-            yield scrapy.Request(url, self.parse_domain, priority=prio, meta={
-                'netloc': response.meta['netloc'],
-                'request_depth': next_depth,
-                'scheduler_slot': netloc,
-            })
+            info = self._request_info(response, url, visited=False)
+            if get_netloc(url) == netloc:
+                yield scrapy.Request(url, self.parse_domain, priority=prio, meta={
+                    'netloc': response.meta['netloc'],
+                    'request_depth': next_depth,
+                    'scheduler_slot': netloc,
+                    'request_info': info,
+                })
+            yield from self._handle_ground_truth(info)
 
     def _get_links(self, response: Response):
         """ Return (link, priority) tuples for a response """
@@ -186,30 +186,39 @@ class DepthSpider(scrapy.Spider):
         for link in self.le.extract_links(response):
             yield link.url, 0
 
-    def _check_if_ground_truth(self, response, url, visited):
-        url_norm = normalize_url(url)
-        to_find = self._urls_to_find[get_netloc(url)]
-        if url_norm not in to_find:
+    def _handle_ground_truth(self, request_info):
+        if not request_info['ground_truth']:
             return
+
+        url = request_info['url']
+        url_norm = normalize_url(url)
+        netloc = get_netloc(url)
+        to_find = self._urls_to_find[netloc]
 
         self.logger.info("ground truth URL found: %s" % url)
         to_find.discard(url_norm)
+        if not to_find:
+            self.logger.info("All pages for %s are found!" % netloc)
+        yield request_info
+
+    def _request_info(self, response: Response, url: str, visited: bool):
         request = response.request  # type: scrapy.Request
-        yield {
+        netloc = get_netloc(url)
+        url_norm = normalize_url(url)
+        ground_truth = url_norm in self._urls_to_find[netloc]
+
+        return {
             'url': url,
+            'ground_truth': ground_truth,
             'found_at': response.url,
-            'crawled_at': time.time(),
+            'sent_at': time.time(),
             'crawl': self.crawl_id,
             'autopager': not self.bfs,
             'depth': response.meta['request_depth'] + (0 if visited else 1),
+            'priority': request.priority,
             '_visited': visited,
-            '_depth': response.meta['depth'],
-            '_priority': request.priority,
-            '_referer': request.headers.get('Referer', '').decode('latin1'),
-            '_left_for_netloc': len(to_find),
+            '_respone_depth': response.meta['depth'],
         }
-        if not to_find:
-            self.logger.info("All pages for %s are found!" % get_netloc(url))
 
     def should_drop(self, request: scrapy.Request):
         netloc = request.meta.get('netloc')
@@ -238,6 +247,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     crawl_id = time.time()
+    crawl_name = '%s-%s' % ('bfs' if args.bfs else 'pager', crawl_id)
+
     cp = CrawlerProcess(dict(
         AUTOTHROTTLE_ENABLED=True,
         AUTOTHROTTLE_START_DELAY=1,
@@ -248,7 +259,7 @@ if __name__ == '__main__':
         MEMUSAGE_ENABLED=True,
         FEED_FORMAT='jsonlines',
         FEED_URI=args.result,
-        LOG_FILE='linkdepth-%s-%s.log' % ('bfs' if args.bfs else 'pager', crawl_id),
+        LOG_FILE='linkdepth-%s.log' % crawl_name,
         LOG_LEVEL='DEBUG',
         DEPTH_PRIORITY=1,
         JOBDIR='.scrapy/%s' % crawl_id,
@@ -257,6 +268,8 @@ if __name__ == '__main__':
             'middleware.MaxRequestsMiddleware': 650,  # after redirects
             'middleware.DropRequestMiddleware': 651,
         },
+        SCHEDULER='scheduler.LoggingScheduler',
+        SCHEDULER_PUSH_LOG='linkdepth-scheduler-%s.jl.gz' % crawl_name,
         SCHEDULER_PRIORITY_QUEUE='queues.RoundRobinPriorityQueue',
         SCHEDULER_DISK_QUEUE='queues.DiskQueue',
         CLOSESPIDER_TIMEOUT=HOUR * 18,
