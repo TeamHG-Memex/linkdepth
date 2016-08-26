@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-scp *.py *.csv linkdepth:
+scp -C *.py *.csv linkdepth:
