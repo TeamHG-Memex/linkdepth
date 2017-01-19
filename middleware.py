@@ -45,9 +45,8 @@ class MaxRequestsMiddleware:
 
 class DropRequestMiddleware:
     """
-    Downloader middleware to drop all requests to a domain
-    once a certain condition is met. It calls
-    ``spider.should_drop(request)`` method to check if a request
+    Downloader middleware to drop a requests if a certain condition is met.
+    It calls ``spider.should_drop(request)`` method to check if a request
     should be downloaded or dropped; spider must implement this method.
     """
     def __init__(self, stats):

@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
 Usage: linkdepth.py urls.txt items.jl
+
+This script crawls all websites from urls.txt and stores
+
+a) all scheduled requests to scheduled-*.jl.gz file;
+b) all downloaded requests to items.jl.
 """
 import csv
 import time
@@ -12,8 +17,8 @@ import tldextract
 import autopager
 import scrapy
 from w3lib.url import canonicalize_url
-from scrapy.crawler import CrawlerProcess
 from scrapy.utils.url import add_http_if_no_scheme
+from scrapy.crawler import CrawlerProcess
 from scrapy.http.response import Response
 from scrapy.linkextractors import LinkExtractor
 
@@ -145,7 +150,8 @@ class DepthSpider(scrapy.Spider):
 
     def parse_domain(self, response: Response):
         info = self._request_info(response, response.url, visited=True)
-        yield from self._handle_ground_truth(info)
+        yield info
+        self._handle_ground_truth(info)
 
         netloc = response.meta['netloc']
         if get_netloc(response.url) != netloc:
@@ -169,7 +175,7 @@ class DepthSpider(scrapy.Spider):
                     'scheduler_slot': netloc,
                     'request_info': info,
                 })
-            yield from self._handle_ground_truth(info)
+            self._handle_ground_truth(info)
 
     def _get_links(self, response: Response):
         """ Return (link, priority) tuples for a response """
@@ -199,7 +205,6 @@ class DepthSpider(scrapy.Spider):
         to_find.discard(url_norm)
         if not to_find:
             self.logger.info("All pages for %s are found!" % netloc)
-        yield request_info
 
     def _request_info(self, response: Response, url: str, visited: bool):
         request = response.request  # type: scrapy.Request
@@ -209,6 +214,7 @@ class DepthSpider(scrapy.Spider):
 
         return {
             'url': url,
+            'url_norm': url_norm,
             'ground_truth': ground_truth,
             'found_at': response.url,
             'sent_at': time.time(),
@@ -216,8 +222,8 @@ class DepthSpider(scrapy.Spider):
             'autopager': not self.bfs,
             'depth': response.meta['request_depth'] + (0 if visited else 1),
             'priority': request.priority,
-            '_visited': visited,
-            '_respone_depth': response.meta['depth'],
+            'visited': visited,
+            '_response_depth': response.meta['depth'],
         }
 
     def should_drop(self, request: scrapy.Request):
@@ -260,7 +266,7 @@ if __name__ == '__main__':
         FEED_FORMAT='jsonlines',
         FEED_URI=args.result,
         LOG_FILE='linkdepth-%s.log' % crawl_name,
-        LOG_LEVEL='DEBUG',
+        LOG_LEVEL='INFO',
         DEPTH_PRIORITY=1,
         JOBDIR='.scrapy/%s' % crawl_id,
         MAX_REQUESTS_PER_NETLOC=args.limit,
@@ -269,7 +275,7 @@ if __name__ == '__main__':
             'middleware.DropRequestMiddleware': 651,
         },
         SCHEDULER='scheduler.LoggingScheduler',
-        SCHEDULER_PUSH_LOG='linkdepth-scheduler-%s.jl.gz' % crawl_name,
+        SCHEDULER_PUSH_LOG='scheduled-%s.jl.gz' % crawl_name,
         SCHEDULER_PRIORITY_QUEUE='queues.RoundRobinPriorityQueue',
         SCHEDULER_DISK_QUEUE='queues.DiskQueue',
         CLOSESPIDER_TIMEOUT=HOUR * 18,
